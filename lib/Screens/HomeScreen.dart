@@ -4,6 +4,7 @@ import 'package:smartmartretailers/Screens/ProductDetailsScreen.dart';
 import 'package:smartmartretailers/Screens/product_storage.dart';
 import 'package:smartmartretailers/category_images.dart';
 import 'package:file_saver/file_saver.dart'; // Added for export
+import 'package:file_picker/file_picker.dart';
 import 'dart:convert'; // Added for encoding text
 
 class Product {
@@ -138,7 +139,90 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 👇 NEW HELPER METHOD TO EXPORT TO TXT FILE 👇
+  Future<void> _importProductsFromTxt() async {
+    try {
+      // 1. New API: pickFiles returns a List<PlatformFile> directly
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+      );
+
+      // Check if the user canceled or didn't pick a file
+      if (files.isEmpty) {
+        return;
+      }
+
+      // 2. Get the first file and read its bytes directly
+      final file = files.first;
+      final bytes = await file.readAsBytes();
+      final contents = utf8.decode(bytes);
+
+      final lines = contents
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+
+      final importedProducts = <Product>[];
+
+      // 3. Parse the text file
+      for (final line in lines) {
+        if (line.startsWith('Code,Name')) continue;
+
+        final parts = line.split(',');
+        if (parts.length < 7) continue;
+
+        try {
+          importedProducts.add(
+            Product(
+              code: parts[0].trim(),
+              name: parts[1].trim(),
+              category: parts[2].trim(),
+              price: double.parse(parts[3].trim()),
+              quantity: int.parse(parts[4].trim()),
+              status: parts[5].trim(),
+              image: parts[6].trim(),
+            ),
+          );
+        } catch (e) {
+          debugPrint('Error parsing line: $line -> $e');
+        }
+      }
+
+      // 4. Update state and persist
+      if (importedProducts.isNotEmpty) {
+        setState(() => products = importedProducts);
+        await _persist();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Successfully imported ${importedProducts.length} products!',
+              ),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No valid products found in the file.'),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Import failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Failed to import file.')));
+      }
+    }
+  }
+
+  // NEW HELPER METHOD TO EXPORT TO TXT FILE
   Future<void> _exportProductsAsTxt() async {
     final buffer = StringBuffer();
     buffer.writeln('Code,Name,Category,Price,Quantity,Status,Image');
@@ -202,11 +286,21 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Theme.of(context).colorScheme.primaryContainer,
         elevation: 2,
         actions: [
+          // 1. IMPORT BUTTON (Upload icon)
+          IconButton(
+            icon: const Icon(Icons.file_upload),
+            tooltip: 'Import from .txt file',
+            onPressed: _importProductsFromTxt,
+          ),
+
+          // 2. SAVE TO APP STORAGE BUTTON (Save icon)
           IconButton(
             icon: const Icon(Icons.save_alt),
             tooltip: 'Save to app storage',
             onPressed: _saveToFile,
           ),
+
+          // 3. EXPORT TO TXT BUTTON (Download icon)
           IconButton(
             icon: const Icon(Icons.download),
             tooltip: 'Export to .txt file',
